@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SHADOW ROUTES: Three Ocean Heroes — Pixel RPG</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:#07090c; color:#cfe3c0; font-family:'Courier New',monospace; height:100%; overflow:hidden; }
+  #wrap { display:flex; height:100vh; }
+  #side { width:280px; min-width:280px; background:#0c1014; border-right:2px solid #1e3a24; padding:10px; font-size:12px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; }
+  #main { flex:1; display:flex; flex-direction:column; }
+  canvas { display:block; width:100%; height:calc(100vh - 110px); image-rendering:pixelated; image-rendering:crisp-edges; background:#05070a; cursor:crosshair; }
+  #log { height:110px; background:#0a0d10; border-top:2px solid #1e3a24; padding:6px 10px; font-size:12px; overflow-y:auto; line-height:1.5; }
+  .bar-wrap { background:#11161b; border:1px solid #243; height:14px; position:relative; margin:2px 0 6px 0; }
+  .bar-fill { height:100%; transition:width .3s; }
+  .bar-label { position:absolute; inset:0; font-size:10px; display:flex; align-items:center; justify-content:center; color:#eaf5ff; text-shadow:1px 1px 0 #000; }
+  h2 { color:#7dff8a; font-size:14px; letter-spacing:2px; text-shadow:0 0 8px #2f4; }
+  h3 { color:#ffd75e; font-size:12px; letter-spacing:1px; margin-top:6px; }
+  .stat { display:flex; justify-content:space-between; color:#9fb8a8; }
+  .stat b { color:#eaf5ff; }
+  .btn { background:#12281a; border:2px solid #2f6b3a; color:#7dff8a; font-family:inherit; font-size:12px; padding:6px 10px; cursor:pointer; letter-spacing:1px; }
+  .btn:hover { background:#1a3a24; box-shadow:0 0 10px #2f4; }
+  .btn:disabled { opacity:.35; cursor:default; box-shadow:none; }
+  .ab { display:flex; justify-content:space-between; align-items:center; background:#101820; border:1px solid #2a4a5a; padding:5px 8px; margin:3px 0; }
+  .ab .key { background:#233; color:#7df; padding:1px 6px; border:1px solid #456; font-weight:bold; }
+  .ab small { color:#7d94a8; display:block; }
+  #crt { position:fixed; inset:0; pointer-events:none; z-index:50;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 1px, transparent 1px 3px); mix-blend-mode:multiply; }
+  #vig { position:fixed; inset:0; pointer-events:none; z-index:51; box-shadow:inset 0 0 180px rgba(0,0,0,.85); }
+  .blink { animation:bl 1s steps(2) infinite; } @keyframes bl { 50%{opacity:.15;} }
+  ::-webkit-scrollbar{width:8px} ::-webkit-scrollbar-thumb{background:#2f6b3a}
+</style>
+<base target="_blank">
+</head>
+<body>
+<div id="wrap">
+  <div id="side">
+    <h2>SHADOW ROUTES</h2>
+    <div id="heroInfo"></div>
+    <h3>RESOURCES</h3>
+    <div class="stat"><span>POWDER (green)</span><b id="sPow">0</b></div>
+    <div class="stat"><span>CLEAN FUNDS $</span><b id="sClean">0</b></div>
+    <div class="stat"><span>HEAT</span><b id="sHeat">0</b></div>
+    <div class="stat"><span>DRILL PROGRESS</span><b id="sDrill">0%</b></div>
+    <div class="stat"><span>INVESTIGATOR CASE</span><b id="sCase">0%</b></div>
+    <h3>FACTION STANDING</h3>
+    <div class="stat"><span>Sovereignty</span></div><div class="bar-wrap"><div class="bar-fill" id="bSov" style="background:#b46bff"></div><div class="bar-label" id="lSov"></div></div>
+    <div class="stat"><span>Joint Task Force</span></div><div class="bar-wrap"><div class="bar-fill" id="bJTF" style="background:#5eb2ff"></div><div class="bar-label" id="lJTF"></div></div>
+    <div class="stat"><span>The Dockside</span></div><div class="bar-wrap"><div class="bar-fill" id="bDock" style="background:#ffb35e"></div><div class="bar-label" id="lDock"></div></div>
+    <div class="stat"><span>Fourth Estate</span></div><div class="bar-wrap"><div class="bar-fill" id="bPress" style="background:#7dff8a"></div><div class="bar-label" id="lPress"></div></div>
+    <h3>ABILITIES</h3>
+    <div id="abilities"></div>
+    <div id="ctrlHint" style="color:#5a7a68;font-size:10px;margin-top:auto"></div>
+  </div>
+  <div id="main">
+    <canvas id="cv" width="960" height="560"></canvas>
+    <div id="log"></div>
+  </div>
+</div>
+<div id="crt"></div><div id="vig"></div>
+<script>
+'use strict';
+/* ================= SHADOW ROUTES : THREE OCEAN HEROES =================
+   Pixel-art strategy RPG built from the "Shadow Routes" seven-episode scenario.
+   You are the OPERATOR. Run the green route, fund the drill, reach 100%
+   before Kenji's case file does. */
+
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+const W = 960, H = 560;
+
+/* ---------------- AUDIO ---------------- */
+let AC=null;
+function beep(f,d,type='square',v=.05){ try{ if(!AC) AC=new (window.AudioContext||window.webkitAudioContext)();
+  const o=AC.createOscillator(),g=AC.createGain(); o.type=type;o.frequency.value=f;
+  g.gain.setValueAtTime(v,AC.currentTime); g.gain.exponentialRampToValueAtTime(.0001,AC.currentTime+d);
+  o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+d);}catch(e){} }
+const sfx={ click:()=>beep(660,.06), move:()=>beep(220,.15,'sawtooth',.04), good:()=>{beep(523,.08);setTimeout(()=>beep(784,.1),90);},
+  bad:()=>beep(160,.25,'sawtooth',.07), ability:()=>{beep(880,.07);setTimeout(()=>beep(1174,.09),80);}, raid:()=>{beep(110,.4,'sawtooth',.09);setTimeout(()=>beep(92,.4,'sawtooth',.09),200);} };
+
+/* ---------------- WORLD DATA ---------------- */
+const NODES=[
+ {id:'jungle', name:'Jungle Camp',   x:800,y:250, region:'asia',    type:'extract', desc:'THE SOURCE — Vietnam–Cambodia border. Extraction zone.'},
+ {id:'bangkok',name:'Bangkok Hub',   x:745,y:310, region:'asia',    type:'extract', desc:'THE HUB — transit city of Bangkok. Decoys & casinos.'},
+ {id:'pattaya',name:'Pattaya',       x:715,y:360, region:'asia',    type:'extract', desc:'Dummy seizures staged on schedule. The Joker feeds ducks.'},
+ {id:'chitta', name:'Chittagong',    x:655,y:285, region:'asia',    type:'extract', desc:'Port officials paid in bearer bonds.'},
+ {id:'hydra',  name:'Hyderabad',     x:612,y:322, region:'asia',    type:'extract', desc:'Deccan Plateau relay. Pharma fronts, night convoys south & west.'},
+ {id:'batumi', name:'Batumi',        x:545,y:215, region:'europe',  type:'transit', desc:'THE EYE OF THE NEEDLE — rain-black port of Georgia.'},
+ {id:'bialy',  name:'Białystok',     x:505,y:160, region:'europe',  type:'transit', desc:'4 a.m. truck stops. Welders seal the castings.'},
+ {id:'krakow', name:'Kraków',        x:550,y:172, region:'europe',  type:'transit', desc:'A2/A4 corridor junction — the southern spoke of the Iron Fleet.'},
+ {id:'warsaw', name:'Warsaw',        x:465,y:145, region:'europe',  type:'transit', desc:'Eleven-minute border crossings, paid in crypto.'},
+ {id:'berth',  name:'Port of Rotterdam', x:418,y:136, region:'europe', type:'transit', desc:'BERTH 44 — 8M containers a year. 2% scanned. Manifest edits itself.'},
+ {id:'boston', name:'Boston',        x:215,y:215, region:'americas',type:'launder', desc:'Never a market — an invoice. Documentation is imported.'},
+ {id:'artery', name:'The Artery',    x:140,y:300, region:'americas',type:'dig',     desc:'Mexico–USA tunnel. Drill head hungry for clean money.'},
+ {id:'mexico', name:'Mexico City',   x:187,y:260, region:'americas',type:'launder', desc:'Capital laundry grid. Peso corridors wash the drilling payroll.'},
+ {id:'cartag', name:'Playa Blanca · Cartagena', x:235,y:372, region:'americas',type:'launder', desc:'Caribbean coves. Emerald dust in tourist coolers, go-fast boats at dusk.'},
+ {id:'puerto', name:'Puerto Rico',   x:272,y:316, region:'americas',type:'launder', desc:'US-flag paperwork, offshore patience. Containers in, stories out.'},
+ {id:'rio',    name:'Rio de Janeiro',x:285,y:455, region:'americas',type:'launder', desc:'Laundries. Art auctions. The Imperator\u2019s weather.'},
+ {id:'lagos',  name:'Port of Nigeria · Lagos', x:452,y:348, region:'americas',type:'launder', desc:'Chemical markets of Africa. Enforcement crews on retainer.'},
+ {id:'mombasa',name:'Port of Mombasa', x:528,y:398, region:'americas',type:'launder', desc:'Swahili coast gateway. 2% scanned, 100% paid. Kilindini berths at night.'},
+];
+const EDGES=[['jungle','bangkok'],['bangkok','pattaya'],['bangkok','chitta'],['chitta','hydra'],
+ ['hydra','batumi'],['chitta','batumi'],
+ ['batumi','bialy'],['bialy','warsaw'],['batumi','krakow'],['krakow','warsaw'],['warsaw','berth'],
+ ['berth','boston'],['boston','artery'],['artery','mexico'],['mexico','boston'],
+ ['boston','puerto'],['puerto','cartag'],['cartag','rio'],['rio','lagos'],['lagos','mombasa'],
+ ['mombasa','batumi'],['lagos','batumi']];
+const ADJ={}; NODES.forEach(n=>ADJ[n.id]=[]);
+EDGES.forEach(([a,b])=>{ADJ[a].push(b);ADJ[b].push(a);});
+const NODE_BY_ID={}; NODES.forEach(n=>NODE_BY_ID[n.id]=n);
+
+/* ---------------- HEROES ---------------- */
+const HEROES={
+ ping:{ key:'ping', name:'YAYAYAhujUS', title:'"Mr. Ping" — The Laughing Node', region:'ASIA',
+   color:'#ff5e5e', home:'bangkok',
+   desc:'Ex-Yakuza extraction chief. Exiled for laughing at the wrong funeral. Wins wars with jokes.',
+   passive:'Passive: bribes cost 40% less; +12 Powder per Extract.',
+   stats:{STR:3,CHA:9,LOG:6,STL:5},
+   abilities:[
+    {key:'Q',id:'laugh', name:'YA! YA! YA! — Golden Laugh', cd:3, desc:'-12 Heat, +10 Dockside, -4 Case (they laugh too).'},
+    {key:'W',id:'decoy', name:'Decoy Seizure', cd:5, desc:'Task Force wins a staged bust: -10 Heat, +3 Case, next raid auto-fails.'}]},
+ mariusz:{ key:'mariusz', name:'MERhujUS', title:'"WWW" — The Iron Fleet', region:'EUROPE (Silk Road)',
+   color:'#5eb2ff', home:'bialy',
+   desc:'Three names, three Ws, one logistics empire. A schedule with a grudge. Moved a tank past Europe\u2019s most-watched border.',
+   passive:'Passive: Transit +50% yield; travel Heat -1.',
+   stats:{STR:6,CHA:2,LOG:9,STL:7},
+   abilities:[
+    {key:'Q',id:'ghost', name:'Ghost Fleet', cd:4, desc:'2 moves generate zero Heat (boredom is camouflage).'},
+    {key:'W',id:'paperwork', name:'Paperwork Armor', cd:6, desc:'Manifests perfect for 2 moves: next 2 raids auto-fail.'}]},
+ black:{ key:'black', name:'BLACKHUJUS', title:'"The Black Sovereign" — Downstairs', region:'AMERICAS & AFRICA',
+   color:'#b46bff', home:'rio',
+   desc:'The apex. Never filmed, never met. Holds the chemical markets of two continents. Subordinates say "Downstairs".',
+   passive:'Passive: +50% Powder on Extract; Launder purifies +25%.',
+   stats:{STR:9,CHA:5,LOG:8,STL:4},
+   abilities:[
+    {key:'Q',id:'downstairs', name:'DOWNTAIRS', cd:5, desc:'-18 Heat, +8 Sovereignty, Case gains halved for 3 moves.'},
+    {key:'W',id:'blackbudget', name:'Black Budget', cd:6, desc:'Double yield on your next node action.'}]}
+};
+
+/* ---------------- GAME STATE ---------------- */
+let G=null;
+function newGame(heroKey){
+  G={ state:'map', hero:HEROES[heroKey], node:HEROES[heroKey].home,
+    pow:40, clean:30, heat:10, drill:14, kas:12,
+    rep:{sov:40,jtf:20,dock:50,press:30},
+    cds:{}, ghost:0, armor:0, suppress:0, double:0, decoyShield:0,
+    moves:0, log:[], shake:0, particles:[], travel:null, heroPos:{x:NODE_BY_ID[HEROES[heroKey].home].x,y:NODE_BY_ID[HEROES[heroKey].home].y},
+    flash:null, raidPending:false };
+  log('Operation begins. Hero: '+G.hero.name+' — '+G.hero.title);
+  log('The documentary was the tutorial. The save file remembers it.');
+  log('Reach DRILL 100% before the Investigator\u2019s CASE reaches 100%.');
+  log('Click a connected node to travel. Press Q / W for abilities.');
+  updateSide();
+}
+function log(t){ G.log.push(t); const el=document.getElementById('log');
+  el.innerHTML=G.log.slice(-60).map(l=>'<span style="color:#7dff8a">»</span> '+l).join('<br>'); el.scrollTop=el.scrollHeight; }
+function clamp(v){ return Math.max(0,Math.min(100,v)); }
+function addRep(k,v){ G.rep[k]=clamp(G.rep[k]+v); }
+
+/* ---------------- ABILITIES ---------------- */
+function useAbility(id){
+  if(G.state!=='map') return;
+  const ab=G.hero.abilities.find(a=>a.id===id);
+  if(!ab || (G.cds[id]||0)>0){ sfx.bad(); return; }
+  G.cds[id]=ab.cd; sfx.ability();
+  switch(id){
+    case 'laugh': G.heat=clamp(G.heat-12); addRep('dock',10); G.kas=clamp(G.kas-4); G.flash={t:'YA! YA! YA!',c:'#ff5e5e'}; log('The laugh rolls across three time zones. Buyers wipe tears. Heat -12.'); break;
+    case 'decoy': G.heat=clamp(G.heat-10); G.kas=clamp(G.kas+3); G.decoyShield=1; G.flash={t:'STAGED SEIZURE',c:'#7dff8a'}; log('Pattaya police seize a speedboat of green bricks. Television eats it alive. Next raid fails.'); break;
+    case 'ghost': G.ghost=2; G.flash={t:'GHOST FLEET',c:'#5eb2ff'}; log('Convoys become the dullest vehicles on any road. Zero Heat for 2 moves.'); break;
+    case 'paperwork': G.armor=2; G.flash={t:'PAPERWORK ARMOR',c:'#5eb2ff'}; log('Correct weight. Correct seals. Correct soup schedule. Next 2 raids fail.'); break;
+    case 'downstairs': G.heat=clamp(G.heat-18); addRep('sov',8); G.suppress=3; G.flash={t:'DOWNSTAIRS',c:'#b46bff'}; log('The weather changes. Nobody jokes about the weather. Heat -18. Case slowed 3 moves.'); break;
+    case 'blackbudget': G.double=1; G.flash={t:'BLACK BUDGET',c:'#b46bff'}; log('Offshore ledgers align. Next action yields DOUBLE.'); break;
+  }
+  updateSide();
+}
+addEventListener('keydown',e=>{
+  if(G&&G.state==='map'){ const k=e.key.toLowerCase();
+    if(k==='q') useAbility(G.hero.abilities[0].id);
+    if(k==='w') useAbility(G.hero.abilities[1].id); }
+});
+
+/* ---------------- ECONOMY / TURN ---------------- */
+function nodeAction(n){
+  let mult=G.double?2:1; G.double=0;
+  const bonus={ping:{extract:12},mariusz:{},black:{extract:1.5,launder:1.25}}[G.hero.key]||{};
+  switch(n.type){
+    case 'extract':{
+      let gain=Math.round((22+Math.random()*10)*mult*((G.hero.key==='black')?1.5:1))+(G.hero.key==='ping'?12*mult:0);
+      G.pow+=gain; heatUp(4); caseUp(1);
+      spawnParticles(n.x,n.y,'#39ff6a',14); sfx.good();
+      log('EXTRACT @ '+n.name+': +'+gain+' Powder. The compound glows when radar sweeps overhead.');
+      if(Math.random()<.3) eventPool.choice();
+      break;}
+    case 'transit':{
+      if(G.pow<20){ log('TRANSIT @ '+n.name+': no cargo to wash through the fleet. Need 20 Powder.'); sfx.bad(); break; }
+      let amt=Math.min(G.pow,30);
+      let conv=Math.round(amt*0.95*((G.hero.key==='mariusz')?1.5:1)*mult*((G.rep.sov>=60)?1.25:1));
+      G.pow-=amt; G.clean+=conv; heatUp(2); caseUp(1);
+      spawnParticles(n.x,n.y,'#5eb2ff',10); sfx.good();
+      log('TRANSIT @ '+n.name+': '+amt+' Powder → $'+conv+' clean. Ghost vehicles, Baltic shells.');
+      if(Math.random()<.3) eventPool.choice();
+      break;}
+    case 'launder':{
+      if(G.pow<10){ log('LAUNDER @ '+n.name+': nothing to wash.'); sfx.bad(); break; }
+      let amt=Math.min(G.pow,40); let conv=Math.round(amt*0.9*mult*((G.hero.key==='black')?1.25:1));
+      G.pow-=amt; G.clean+=conv; G.heat=clamp(G.heat-5*(G.hero.key==='ping'?1.4:1)); caseUp(1);
+      spawnParticles(n.x,n.y,'#b46bff',10); sfx.good();
+      log('LAUNDER @ '+n.name+': art auctions, never-occupied towers. +$'+conv+' clean, Heat -5.');
+      if(Math.random()<.3) eventPool.choice();
+      break;}
+    case 'dig':{
+      const cost=Math.round(40*((G.rep.sov>=60)?0.8:1));
+      if(G.clean<cost){ log('DIG @ The Artery: drill head idle — needs $'+cost+' clean funds.'); sfx.bad(); break; }
+      G.clean-=cost; let prog=Math.round((4+Math.random()*2)*mult);
+      G.drill=clamp(G.drill+prog); heatUp(6); caseUp(3);
+      spawnParticles(n.x,n.y,'#ffd75e',20); sfx.move();
+      log('DIG @ The Artery: -$'+cost+'. Drill at '+G.drill+'%. The hum gets louder.');
+      if(G.drill>=100) return endGame('win');
+      if(Math.random()<.35) eventPool.choice();
+      break;}
+  }
+  updateSide();
+}
+function heatUp(v){
+  if(G.ghost>0) v=0;
+  if(G.hero.key==='mariusz'&&v>0) v=Math.max(0,v-1);
+  if(G.rep.dock>=60&&v>0) v=Math.max(0,v-1);
+  G.heat=clamp(G.heat+v);
+}
+function caseUp(v){
+  if(G.suppress>0) v=Math.ceil(v/2);
+  if(G.rep.jtf>=60) v=Math.max(0,v-1);
+  v+=Math.floor(G.heat/25);
+  G.kas=clamp(G.kas+v);
+}
+function endTurnChecks(){
+  // raid check
+  const raidChance=G.heat/100;
+  if(Math.random()<raidChance*0.55){
+    if(G.decoyShield>0){ G.decoyShield--; log('RAID intercepted — they hit the decoy cache. Nothing but flour and pride.'); sfx.good(); }
+    else if(G.armor>0){ G.armor--; log('RAID fizzles: the container holds tractors. Only tractors. The inspector stands very still.'); sfx.good(); }
+    else raidEvent();
+  }
+  if(G.heat>=85&&Math.random()<.5){ G.kas=clamp(G.kas+4); log('Red notice drafted. Kenji\u2019s evidence wall grows a new string. Case +4.'); }
+  // heat decay
+  G.heat=clamp(G.heat-2);
+  if(G.ghost>0)G.ghost--; if(G.armor>0)G.armor--; if(G.suppress>0)G.suppress--;
+  if(G.kas>=100) return endGame('lose');
+  updateSide();
+}
+
+/* ---------------- EVENTS ---------------- */
+const eventPool={
+ choice(){
+  const evts=[
+   {t:'A Bangkok lieutenant wants the manifest joke reinstated. "It was FUNNY," he insists.',
+    c:[['Allow it (Dockside +8, Heat +8, Case +3)',()=>{addRep('dock',8);G.heat=clamp(G.heat+8);G.kas=clamp(G.kas+3);}],
+       ['Forbid it (Sovereignty +6, Dockside -4)',()=>{addRep('sov',6);addRep('dock',-4);}]]},
+   {t:'Colonel Chalerm requests a "record seizure" for the cameras this week.',
+    c:[['Feed him a decoy (Heat -8, Fourth Estate +5)',()=>{G.heat=clamp(G.heat-8);addRep('press',5);}],
+       ['Refuse — he gets suspicious (Heat +5, Case +4)',()=>{G.heat=clamp(G.heat+8);G.kas=clamp(G.kas+4);}]]},
+   {t:'Waldemar invites you to a family wedding. Scientists would study the footage.',
+    c:[['Send an anonymous gift (Case -4)',()=>{G.kas=clamp(G.kas-4);}],
+       ['Decline. Weddings are a paperwork error (Sovereignty +4)',()=>{addRep('sov',4);}]]},
+   {t:'A courier in Chittagong saw the containers glow. He wants hazard pay. Or else.',
+    c:[['Pay him (Clean -15, Case -3)',()=>{G.clean=Math.max(0,G.clean-15);G.kas=clamp(G.kas-3);}],
+       ['Make an example (Heat -4, Fourth Estate -8, Sovereignty +6)',()=>{G.heat=clamp(G.heat-4);addRep('press',-8);addRep('sov',6);}]]},
+   {t:'Agent "Omega" is poking around a Rio ledger office. One phone call could misdirect her.',
+    c:[['Burn a shell company (Clean -20, Case -6)',()=>{G.clean=Math.max(0,G.clean-20);G.kas=clamp(G.kas-6);}],
+       ['Do nothing (Case +6)',()=>{G.kas=clamp(G.kas+6);}]]},
+   {t:'Dock workers at Berth 44 demand a "shift bonus" before your container lands.',
+    c:[['Pay the Dockside (Clean -12, Dockside +10)',()=>{G.clean=Math.max(0,G.clean-12);addRep('dock',10);}],
+       ['Squeeze them (Dockside -12, Clean +8)',()=>{addRep('dock',-12);G.clean+=8;}]]},
+  ];
+  const e=evts[Math.floor(Math.random()*evts.length)];
+  G.state='event'; G.event=e; sfx.click(); updateSide();
+ },
+ resolve(i){ const f=G.event.c[i][1]; f(); log('EVENT: '+G.event.c[i][0]); G.event=null; G.state='map'; updateSide(); }
+};
+function raidEvent(){
+  G.state='raid'; G.shake=14; sfx.raid(); updateSide();
+}
+function resolveRaid(mode){
+  if(mode==='bribe'&&G.pow>=60){ G.pow-=60; G.heat=clamp(G.heat-10); addRep('jtf',4);
+    log('RAID bought off: 60 Powder in hardware wallets. The team leader develops a scheduling conflict.'); }
+  else{ const loss=Math.round(G.pow*0.25); G.pow-=loss; G.heat=clamp(G.heat-15);
+    let cas=8; if(G.rep.press>=60)cas=4; G.kas=clamp(G.kas+cas); addRep('press',-6);
+    log('RAID: seized '+loss+' Powder. Kenji films the container opening. Case +'+cas+'.'); }
+  G.state='map'; if(G.kas>=100) return endGame('lose'); updateSide();
+}
+
+/* ---------------- TRAVEL ---------------- */
+function travel(id){
+  if(G.state!=='map'||G.travel) return;
+  if(!ADJ[G.node].includes(id)) return;
+  const from=NODE_BY_ID[G.node], to=NODE_BY_ID[id];
+  G.travel={from,to,t:0}; G.node=id; sfx.move(); updateSide();
+}
+function finishTravel(){
+  const t=G.travel.to; G.travel=null; G.moves++;
+  G.heroPos={x:t.x,y:t.y};
+  log('→ Arrived: '+t.name+'. '+t.desc);
+  nodeAction(t);
+  if(G&&G.state==='map') endTurnChecks();
+}
+
+/* ---------------- ENDINGS ---------------- */
+function endGame(kind){
+  G.state=kind==='win'?'win':'lose'; sfx.ability(); updateSide();
+}
+
+/* ---------------- PIXEL SPRITES ---------------- */
+function drawHeroSprite(c,x,y,heroKey,frame,scale=3){
+  const P={ // 12x14 pixel maps. .=transparent
+  ping:[
+   '............','..KKKKKKKK..','.KWWKKKKWWK.','.KWBKKKKWBK.','..KKKKKKKK..','...KKKKKK...','..KRRRRRRK..','.KKKKKKKKKK.','.KKSKKKKSKK.','..KKKKKKKK..','..KKK..KKK..','..KK....KK..','............','............'],
+  mariusz:[
+   '............','...BBBBBB...','..BBBBBBBB..','..BSSSSSSB..','..BSESSSEB..','...SSSSSS...','..BBBBBBBB..','.BBBBBBBBBB.','.SBBBBBBBBS.','.SBBBBBBBBS.','..BBBBBBBB..','..BB....BB..','..BB....BB..','..KK....KK..'],
+  black:[
+   '....GGGG....','..GGGGGGGG..','.GGKKKKKKGG.','.GGKWWWWKGG.','.GGKWKKWKGG.','..GKKKKKK G..','.KKKKKKKKKK.','KKKKKKKKKKKK','KSKKKKKKKKSK','.KKKKKKKKKK.','..KKKWWKKK..','..KKK..KKK..','............','............']};
+  const pal={ping:{K:'#16181c',W:'#f2e6d5',B:'#111',R:'#d42a2a'},mariusz:{B:'#2b4d7a',S:'#e8b98a',E:'#222',K:'#1a1a1a'},
+             black:{G:'#22262b',K:'#22262b',W:'#ff5ad0',S:'#ffd75e'}}[heroKey];
+  const map=P[heroKey]; const bob=frame?1:0;
+  for(let r=0;r<map.length;r++) for(let col=0;col<map[r].length;col++){
+    const ch=map[r][col]; if(ch==='.'||ch===' ') continue;
+    c.fillStyle=pal[ch]||'#fff'; c.fillRect(x+col*scale,y+(r+bob)*scale,scale,scale); }
+}
+function drawPortrait(c,x,y,heroKey,scale){
+  drawHeroSprite(c,x,y,heroKey,0,scale);
+  c.strokeStyle=HEROES[heroKey].color; c.lineWidth=2; c.strokeRect(x-6,y-6,12*scale+12,14*scale+12);
+}
+
+/* ---------------- MAP RENDER ---------------- */
+let T=0, hoverNode=null;
+function drawMap(){
+  hoverNode=null;
+  if(G&&typeof mx!=='undefined'&&mx>=0){ let bd=1e9; NODES.forEach(n=>{ const d=(n.x-mx)**2+(n.y-my)**2; if(d<bd){bd=d;hoverNode=n;} }); if(bd>30*30)hoverNode=null; }
+  // ocean
+  ctx.fillStyle='#07131c'; ctx.fillRect(0,0,W,H);
+  // grid
+  ctx.strokeStyle='rgba(40,80,90,.25)'; ctx.lineWidth=1;
+  for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+  for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+  // pixel continents (stylized blobs)
+  const cont=(pts,col)=>{ ctx.fillStyle=col; pts.forEach(p=>ctx.fillRect(p[0],p[1],20,20)); };
+  ctx.fillStyle='#0e2418';
+  cont([[80,120],[100,120],[120,140],[140,160],[140,180],[160,200],[160,240],[180,260],[180,300],[160,340],[160,400],[180,440],[200,460],[180,480],[120,220],[100,260]],'#0e2418'); // americas
+  cont([[220,300],[240,320],[250,340],[235,372],[215,390],[250,420],[270,450],[250,470]],'#0e2418'); // south america / caribbean spine
+  cont([[400,100],[420,100],[440,120],[460,140],[480,140],[500,160],[520,180],[540,180],[560,200],[580,220],[600,240]],'#0e2418'); // europe
+  cont([[460,280],[480,300],[500,320],[520,340],[540,360],[560,380],[580,400],[520,380],[540,400],[500,360]],'#0e2418'); // africa
+  cont([[600,300],[620,320],[640,180],[660,160],[680,180],[700,200],[720,220],[740,240],[760,260],[780,280],[760,300],[740,320],[720,340]],'#0e2418'); // asia
+  // dotted texture
+  ctx.fillStyle='rgba(60,120,80,.15)';
+  for(let i=0;i<80;i++){ const x=(i*137)%W,y=(i*251)%H; ctx.fillRect(x,y,4,4); }
+  // 2026 LIVE OPS HUD
+  ctx.fillStyle='rgba(8,14,10,.85)'; ctx.fillRect(10,10,330,26);
+  ctx.strokeStyle='#1e3a24'; ctx.strokeRect(10,10,330,26);
+  ctx.fillStyle='#39ff6a'; ctx.font='bold 12px Courier New'; ctx.textAlign='left';
+  const secs=String(Math.floor(T/60)%60).padStart(2,'0');
+  ctx.fillText('◉ OPERATION SHADOW ROUTES — LIVE OPS GRID · 2026 · T+'+Math.floor(T/60)+':'+secs,18,27);
+  // radar sweep
+  const ra=T/90, cxr=480, cyr=300;
+  for(let i=0;i<24;i++){ const a=ra-i*0.02;
+    ctx.strokeStyle='rgba(57,255,106,'+(0.10*(1-i/24))+')'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(cxr,cyr); ctx.lineTo(cxr+Math.cos(a)*430,cyr+Math.sin(a)*430); ctx.stroke(); }
+  ctx.strokeStyle='rgba(57,255,106,.12)';
+  [90,180,270,360].forEach(rr=>{ ctx.beginPath(); ctx.arc(cxr,cyr,rr,0,7); ctx.stroke(); });
+  // routes
+  const pulse=0.5+0.5*Math.sin(T/20);
+  EDGES.forEach(([a,b])=>{
+    const A=NODE_BY_ID[a],B=NODE_BY_ID[b];
+    const lit=G&&(G.node===a||G.node===b)&&!G.travel;
+    ctx.strokeStyle=lit?'rgba(57,255,106,'+(0.5+0.4*pulse)+')':'rgba(90,140,110,.35)';
+    ctx.lineWidth=lit?3:2; ctx.setLineDash(lit?[8,6]:[4,8]); ctx.lineDashOffset=-T/2;
+    ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke(); ctx.setLineDash([]);
+  });
+  // nodes
+  NODES.forEach(n=>{
+    const cur=G&&G.node===n.id, adj=G&&ADJ[G.node].includes(n.id)&&!G.travel;
+    const col={asia:'#39ff6a',europe:'#5eb2ff',americas:'#b46bff'}[n.region];
+    const r=cur?9:6;
+    ctx.fillStyle=col; ctx.beginPath(); ctx.arc(n.x,n.y,r+(adj?Math.sin(T/8)*2:0),0,7); ctx.fill();
+    ctx.fillStyle='#05070a'; ctx.beginPath(); ctx.arc(n.x,n.y,3,0,7); ctx.fill();
+    if(adj){ ctx.strokeStyle='rgba(255,255,255,.8)'; ctx.lineWidth=1; ctx.strokeRect(n.x-11,n.y-11,22,22); }
+    ctx.fillStyle=cur?'#fff':'#9fb8a8'; ctx.font='11px Courier New'; ctx.textAlign='center';
+    ctx.fillText(n.name.toUpperCase(),n.x,n.y-16);
+    ctx.fillStyle=col; ctx.font='9px Courier New'; ctx.fillText(n.type.toUpperCase(),n.x,n.y+22);
+  });
+  // legend
+  ctx.fillStyle='rgba(8,14,10,.8)'; ctx.fillRect(10,H-64,196,54);
+  ctx.strokeStyle='#1e3a24'; ctx.strokeRect(10,H-64,196,54);
+  ctx.font='10px Courier New'; ctx.textAlign='left';
+  ctx.fillStyle='#39ff6a'; ctx.fillText('■ ASIA — EXTRACT',18,H-48);
+  ctx.fillStyle='#5eb2ff'; ctx.fillText('■ EUROPE — TRANSIT',18,H-34);
+  ctx.fillStyle='#b46bff'; ctx.fillText('■ AMERICAS/AFRICA — LAUNDER',18,H-20);
+  ctx.fillStyle='#ffd75e'; ctx.fillText('■ ARTERY — DIG (WIN)',18,H-8);
+  // hover intel
+  if(typeof hoverNode!=='undefined'&&hoverNode){
+    ctx.fillStyle='rgba(8,14,10,.92)'; ctx.fillRect(W-320,H-84,310,74);
+    ctx.strokeStyle='#2f6b3a'; ctx.strokeRect(W-320,H-84,310,74);
+    ctx.fillStyle='#7dff8a'; ctx.font='bold 12px Courier New';
+    ctx.fillText(hoverNode.name.toUpperCase(),W-308,H-64);
+    ctx.fillStyle='#9fb8a8'; ctx.font='10px Courier New';
+    wrapText(hoverNode.desc,W-308,H-48,290,12);
+  }
+  // hero token
+  const hp=G?G.heroPos:{x:0,y:0};
+  const bob=Math.sin(T/6)>0?0:1;
+  drawHeroSprite(ctx,hp.x-18,hp.y-26,G?G.hero.key:'ping',bob,3);
+  // particles
+  if(G){ G.particles=G.particles.filter(p=>p.life>0);
+    G.particles.forEach(p=>{ p.x+=p.vx;p.y+=p.vy;p.life--;
+      ctx.fillStyle=p.c; ctx.globalAlpha=p.life/30; ctx.fillRect(p.x,p.y,3,3); ctx.globalAlpha=1; });
+  }
+  // heat vignette glow
+  if(G&&G.heat>60){ ctx.fillStyle='rgba(255,40,40,'+((G.heat-60)/400)+')'; ctx.fillRect(0,0,W,H); }
+  // screen shake
+  if(G&&G.shake>0){ G.shake--; }
+}
+function spawnParticles(x,y,c,n){ if(!G)return; for(let i=0;i<n;i++) G.particles.push({x,y,vx:(Math.random()-.5)*2.4,vy:(Math.random()-.5)*2.4-1,life:30,c}); }
+
+/* ---------------- TITLE / SELECT ---------------- */
+let selIdx=0; const selKeys=['ping','mariusz','black'];
+function drawTitle(){
+  ctx.fillStyle='#05070a'; ctx.fillRect(0,0,W,H);
+  // stars
+  for(let i=0;i<120;i++){ ctx.fillStyle='rgba(200,255,220,'+((i*37)%100)/160+')'; ctx.fillRect((i*173)%W,(i*97)%H,2,2); }
+  // earth wireframe
+  ctx.strokeStyle='rgba(57,255,106,.35)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.arc(W/2,H/2+30,150+Math.sin(T/40)*4,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(W/2,H/2+30,110,0,7); ctx.stroke();
+  // green route line
+  ctx.strokeStyle='#39ff6a'; ctx.setLineDash([10,8]); ctx.lineDashOffset=-T;
+  ctx.beginPath(); ctx.moveTo(W/2+300,H/2+10); ctx.quadraticCurveTo(W/2,H/2-120,W/2-280,H/2+60); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle='#7dff8a'; ctx.font='bold 42px Courier New'; ctx.textAlign='center';
+  ctx.shadowColor='#39ff6a'; ctx.shadowBlur=18;
+  ctx.fillText('SHADOW ROUTES',W/2,110);
+  ctx.shadowBlur=0;
+  ctx.fillStyle='#9fb8a8'; ctx.font='16px Courier New';
+  ctx.fillText('T H R E E   O C E A N   H E R O E S',W/2,140);
+  ctx.fillStyle='#3a7a52'; ctx.font='13px Courier New';
+  ctx.fillText('— 2026 EDITION · GLOBAL OPS GRID v2.0 —',W/2,160);
+  ctx.fillStyle='#5a7a68'; ctx.font='12px Courier New';
+  ctx.fillText('A documentary became a game. The save file does not care which one you came for.',W/2,182);
+  ctx.fillStyle=(T%40<20)?'#ffd75e':'#7a6420'; ctx.font='bold 18px Courier New';
+  ctx.fillText('PRESS ENTER — SELECT YOUR OPERATOR',W/2,500);
+}
+function drawSelect(){
+  ctx.fillStyle='#05070a'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#7dff8a'; ctx.font='bold 24px Courier New'; ctx.textAlign='center';
+  ctx.fillText('CHOOSE YOUR HERO',W/2,50);
+  selKeys.forEach((k,i)=>{
+    const h=HEROES[k], x=180+i*300, y=120;
+    const sel=i===selIdx;
+    if(sel){ ctx.fillStyle='rgba(125,255,138,.07)'; ctx.fillRect(x-110,y-20,220,300);
+      ctx.strokeStyle=h.color; ctx.lineWidth=2; ctx.strokeRect(x-110,y-20,220,300); }
+    drawPortrait(ctx,x-36,y+40,k,6);
+    ctx.fillStyle=sel?h.color:'#777'; ctx.font='bold 16px Courier New'; ctx.fillText(h.name,x,y+190);
+    ctx.fillStyle='#9fb8a8'; ctx.font='11px Courier New'; ctx.fillText(h.title,x,y+208);
+    ctx.fillStyle=h.color; ctx.font='10px Courier New'; ctx.fillText(h.region,x,y+224);
+    // stats
+    const st=h.stats; let sy=y+244;
+    Object.keys(st).forEach(s=>{ ctx.fillStyle='#5a7a68'; ctx.textAlign='right'; ctx.fillText(s,x-30,sy);
+      ctx.fillStyle=h.color; for(let b=0;b<st[s];b++) ctx.fillRect(x-20+b*12,sy-8,9,7);
+      ctx.textAlign='center'; sy+=16; });
+    // desc wrap
+    ctx.fillStyle='#7d94a8'; ctx.font='10px Courier New';
+    wrapText(h.desc,x-95,y+316,190,12);
+    ctx.fillStyle='#cfe3c0'; wrapText(h.passive,x-95,y+316+3*12+6,190,12);
+  });
+  ctx.fillStyle=(T%40<20)?'#ffd75e':'#7a6420'; ctx.font='bold 14px Courier New';
+  ctx.fillText('← → ARROWS    ENTER = START OPERATION',W/2,530);
+}
+function wrapText(t,x,y,maxW,lh){ const words=t.split(' '); let line='',yy=y;
+  words.forEach(w=>{ if(ctx.measureText(line+w).width>maxW){ ctx.fillText(line,x,yy); yy+=lh; line=w+' '; } else line+=w+' '; });
+  ctx.fillText(line,x,yy); }
+
+/* ---------------- EVENT / RAID / END SCREENS ---------------- */
+function drawEvent(){
+  drawMap();
+  const e=G.event;
+  ctx.fillStyle='rgba(3,6,8,.82)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#0c1418'; ctx.strokeStyle='#39ff6a'; ctx.lineWidth=2;
+  ctx.fillRect(140,180,680,200); ctx.strokeRect(140,180,680,200);
+  ctx.fillStyle='#7dff8a'; ctx.font='bold 15px Courier New'; ctx.textAlign='left';
+  ctx.fillText('◈ FIELD EVENT',165,212);
+  ctx.fillStyle='#e8f5e0'; ctx.font='13px Courier New';
+  wrapText(e.t,165,240,630,20);
+  e.c.forEach((c,i)=>{ ctx.fillStyle=(i===0)?'#ffd75e':'#7df'; ctx.font='12px Courier New';
+    ctx.fillText((i+1)+') '+c[0],165,300+i*26); });
+  ctx.fillStyle='#5a7a68'; ctx.font='11px Courier New';
+  ctx.fillText('Press 1 or 2',165,360);
+}
+function drawRaid(){
+  drawMap();
+  ctx.fillStyle='rgba(40,0,0,.55)'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#1a0808'; ctx.strokeStyle='#ff4040'; ctx.lineWidth=3;
+  ctx.fillRect(160,190,640,180); ctx.strokeRect(160,190,640,180);
+  ctx.fillStyle='#ff5050'; ctx.font='bold 22px Courier New'; ctx.textAlign='center';
+  ctx.fillText('⚠ JOINT TASK FORCE RAID ⚠',W/2,230);
+  ctx.fillStyle='#e8c8c8'; ctx.font='13px Courier New';
+  ctx.fillText('Doors cut at '+NODE_BY_ID[G.node].name+'. Flashlights. A camera crew — Kenji is HERE.',W/2,265);
+  ctx.fillText('Powder on hand: '+G.pow,W/2,290);
+  ctx.fillStyle='#ffd75e'; ctx.font='12px Courier New'; ctx.textAlign='left';
+  ctx.fillText('1) Take the loss — 25% Powder seized, Heat resets, Case +8',190,325);
+  const can=G.pow>=60;
+  ctx.fillStyle=can?'#7dff8a':'#555';
+  ctx.fillText(can?'2) Buy your way out — 60 Powder, Heat -10, they never saw the yard':'2) Buy your way out — need 60 Powder',190,350);
+}
+function drawEnd(){
+  const win=G.state==='win';
+  ctx.fillStyle='#03050a'; ctx.fillRect(0,0,W,H);
+  if(win){
+    ctx.fillStyle='#39ff6a'; ctx.font='bold 30px Courier New'; ctx.textAlign='center';
+    ctx.shadowColor='#39ff6a'; ctx.shadowBlur=20;
+    ctx.fillText('CONCRETE DAWN',W/2,140); ctx.shadowBlur=0;
+    ctx.fillStyle='#9fb8a8'; ctx.font='14px Courier New';
+    ctx.fillText('The drill breaks through. DOWNSTAIRS opens for business.',W/2,185);
+    ctx.fillText('The Earth at night, glowing as ever — while underneath, the red lines light up one by one.',W/2,210);
+  } else {
+    ctx.fillStyle='#ff5050'; ctx.font='bold 30px Courier New'; ctx.textAlign='center';
+    ctx.fillText('BERTH 44',W/2,140);
+    ctx.fillStyle='#e8c8c8'; ctx.font='14px Courier New';
+    ctx.fillText('One verified chain, complete to the Sovereignty ledger. Nine countries, one synchronized hour.',W/2,185);
+    ctx.fillText('They are laughing as they read you your rights. Kenji got his ending.',W/2,210);
+  }
+  ctx.fillStyle='#eaf5ff'; ctx.font='13px Courier New';
+  const rows=[['OPERATOR',G.hero.name],['MOVES',G.moves],['POWDER MOVED','— the ledger is sealed'],
+    ['DRILL',G.drill+'%'],['CASE FILE',G.kas+'%'],['SOVEREIGNTY',G.rep.sov],['DOCKSIDE',G.rep.dock]];
+  rows.forEach((r,i)=>{ ctx.textAlign='right'; ctx.fillStyle='#5a7a68'; ctx.fillText(r[0],W/2-20,270+i*24);
+    ctx.textAlign='left'; ctx.fillStyle='#cfe3c0'; ctx.fillText(String(r[1]),W/2+20,270+i*24); });
+  ctx.textAlign='center'; ctx.fillStyle=(T%40<20)?'#ffd75e':'#7a6420'; ctx.font='bold 15px Courier New';
+  ctx.fillText('PRESS ENTER — RUN IT BACK',W/2,510);
+}
+
+/* ---------------- SIDE PANEL ---------------- */
+function updateSide(){
+  if(!G) return;
+  document.getElementById('heroInfo').innerHTML=
+    '<h3 style="color:'+G.hero.color+'">'+G.hero.name+'</h3><div style="color:#7d94a8;font-size:10px">'+G.hero.title+'</div>';
+  document.getElementById('sPow').textContent=G.pow;
+  document.getElementById('sClean').textContent='$'+G.clean;
+  document.getElementById('sHeat').textContent=G.heat+(G.ghost>0?' 🚚':'');
+  document.getElementById('sDrill').textContent=G.drill+'%';
+  document.getElementById('sCase').textContent=G.kas+'%';
+  const reps=[['sov','bSov','lSov'],['jtf','bJTF','lJTF'],['dock','bDock','lDock'],['press','bPress','lPress']];
+  reps.forEach(([k,b,l])=>{ document.getElementById(b).style.width=G.rep[k]+'%';
+    document.getElementById(l).textContent=G.rep[k]; });
+  const ab=document.getElementById('abilities');
+  ab.innerHTML=G.hero.abilities.map(a=>{ const cd=G.cds[a.id]||0;
+    return '<div class="ab"><span><span class="key">'+a.key+'</span> <b style="color:'+G.hero.color+'">'+a.name.split('—')[0]+'</b><small>'+a.desc+'</small></span>'+
+      '<span style="color:'+(cd>0?'#ff5050':'#7dff8a')+';font-weight:bold">'+(cd>0?cd:'RDY')+'</span></div>'; }).join('');
+  document.getElementById('ctrlHint').innerHTML='CLICK node = travel · Q/W = abilities<br>Asia=Extract · Europe=Transit · Americas=Launder · Artery=Dig';
+}
+
+/* ---------------- INPUT ---------------- */
+let mode='title';
+addEventListener('keydown',e=>{
+  if(mode==='title'&&e.key==='Enter'){ mode='select'; sfx.click(); }
+  else if(mode==='select'){ if(e.key==='ArrowLeft'){selIdx=(selIdx+2)%3;sfx.click();}
+    if(e.key==='ArrowRight'){selIdx=(selIdx+1)%3;sfx.click();}
+    if(e.key==='Enter'){ mode='game'; newGame(selKeys[selIdx]); sfx.good(); } }
+  else if(mode==='game'&&(G.state==='win'||G.state==='lose')&&e.key==='Enter'){ mode='select'; }
+  else if(G&&G.state==='event'){ if(e.key==='1')eventPool.resolve(0); if(e.key==='2')eventPool.resolve(1); }
+  else if(G&&G.state==='raid'){ if(e.key==='1')resolveRaid('loss'); if(e.key==='2'&&G.pow>=60)resolveRaid('bribe'); }
+});
+let mx=-1,my=-1;
+cv.addEventListener('mousemove',e=>{ const r=cv.getBoundingClientRect(); mx=(e.clientX-r.left)*(W/r.width); my=(e.clientY-r.top)*(H/r.height); });
+cv.addEventListener('mouseleave',()=>{mx=-1;my=-1;});
+cv.addEventListener('click',e=>{
+  if(mode!=='game'||!G||G.state!=='map'||G.travel) return;
+  const r=cv.getBoundingClientRect();
+  const x=(e.clientX-r.left)*(W/r.width), y=(e.clientY-r.top)*(H/r.height);
+  let best=null,bd=1e9;
+  NODES.forEach(n=>{ const d=(n.x-x)**2+(n.y-y)**2; if(d<bd){bd=d;best=n;} });
+  if(best&&bd<28*28&&ADJ[G.node].includes(best.id)) travel(best.id);
+});
+
+/* ---------------- MAIN LOOP ---------------- */
+function loop(){
+  T++;
+  ctx.save();
+  if(G&&G.shake>0) ctx.translate((Math.random()-.5)*G.shake,(Math.random()-.5)*G.shake);
+  if(mode==='title') drawTitle();
+  else if(mode==='select') drawSelect();
+  else if(mode==='game'){
+    if(G.state==='event') drawEvent();
+    else if(G.state==='raid') drawRaid();
+    else if(G.state==='win'||G.state==='lose') drawEnd();
+    else{
+      drawMap();
+      if(G.travel){ G.travel.t+=0.02;
+        const f=G.travel.from,t=G.travel.to,k=Math.min(1,G.travel.t);
+        G.heroPos={x:f.x+(t.x-f.x)*k, y:f.y+(t.y-f.y)*k - Math.sin(k*Math.PI)*30};
+        if(k>=1) finishTravel(); }
+      if(G.flash){ ctx.fillStyle=G.flash.c; ctx.font='bold 26px Courier New'; ctx.textAlign='center';
+        ctx.globalAlpha=0.9; ctx.fillText(G.flash.t,W/2,80); ctx.globalAlpha=1;
+        if(T%50===0)G.flash=null; }
+      // cooldown ticks
+      if(T%60===0){ Object.keys(G.cds).forEach(k=>{ if(G.cds[k]>0)G.cds[k]--; }); updateSide(); }
+    }
+  }
+  ctx.restore();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
