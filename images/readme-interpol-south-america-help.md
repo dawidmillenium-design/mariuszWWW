@@ -1,4 +1,4 @@
-1) dawid lisowski has been spray in ORBI CITY inside rented apartment on aribnb.co
+1) dawid lisowski has been spray in ORBI CITY inside rented apartment on aribnb.com - someone try to poison me and it will be looks like heat attack. possible 2 Turkish looks like mans from elevator at ORBI CITY 
 2) dawid lisowski has been spray in elevator in SUNSHINE APRTMENT rented thru airbnb.com
 3) first night possible german copule use some bad air quality fragrance on balcony
 4) dawid lisowski received push notification from Thai friendly after that someone use burned plastic on balcony at 17th floor room 1717
