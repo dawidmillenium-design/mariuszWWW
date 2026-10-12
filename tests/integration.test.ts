@@ -5,6 +5,7 @@ import { save, load, initialState, GameState } from '../src/store/gameStore';
 // deterministic LCG so a full playthrough is reproducible in CI
 const lcg = (seed: number) => { let x = seed; return () => { x = (x * 1103515245 + 12345) % 2147483648; return x / 2147483648; }; };
 const noEvent = () => 0.99;
+const queue = (...vals: number[]) => { let i = 0; return () => vals[i] < 1 ? vals[i++] : vals[vals.length - 1]; };
 
 describe('operator abilities', () => {
   it('laugh reduces heat, applies cooldown, blocks reuse while cooling', () => {
